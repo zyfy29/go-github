@@ -16,13 +16,15 @@ type TestStruct struct {
 	Count     int64     `json:"count,omitempty"`      // want `field Count: value type should not use omitempty`
 	CreatedAt time.Time `json:"created_at,omitempty"` // want `field CreatedAt: value type should not use omitempty`
 
-	// Pointer/composite types without omitempty - should report
-	Title       *string           `json:"title"`       // want `field Title: pointer/composite type should use omitempty`
-	Description *string           `json:"description"` // want `field Description: pointer/composite type should use omitempty`
-	Age         *int              `json:"age"`         // want `field Age: pointer/composite type should use omitempty`
-	Tags        []string          `json:"tags"`        // want `field Tags: pointer/composite type should use omitempty`
-	Metadata    map[string]string `json:"metadata"`    // want `field Metadata: pointer/composite type should use omitempty`
-	Data        []byte            `json:"data"`        // want `field Data: pointer/composite type should use omitempty`
+	// Pointer types without omitempty - should report
+	Title       *string `json:"title"`       // want `field Title: pointer type should use omitempty`
+	Description *string `json:"description"` // want `field Description: pointer type should use omitempty`
+	Age         *int    `json:"age"`         // want `field Age: pointer type should use omitempty`
+
+	// Composite types (slice, map) - no restrictions, these should NOT report
+	Tags     []string          `json:"tags"`
+	Metadata map[string]string `json:"metadata"`
+	Data     []byte            `json:"data"`
 }
 
 func main() {}

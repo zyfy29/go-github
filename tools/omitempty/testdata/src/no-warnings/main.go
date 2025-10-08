@@ -16,13 +16,18 @@ type TestStruct struct {
 	Count     int64     `json:"count"`
 	CreatedAt time.Time `json:"created_at"`
 
-	// Pointer/composite types with omitempty - correct
-	Title       *string           `json:"title,omitempty"`
-	Description *string           `json:"description,omitempty"`
-	Age         *int              `json:"age,omitempty"`
-	Tags        []string          `json:"tags,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	Data        []byte            `json:"data,omitempty"`
+	// Pointer types with omitempty - correct
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Age         *int    `json:"age,omitempty"`
+
+	// Composite types - both with and without omitempty are allowed
+	Tags         []string          `json:"tags"`
+	TagsOmit     []string          `json:"tags_omit,omitempty"`
+	Metadata     map[string]string `json:"metadata"`
+	MetadataOmit map[string]string `json:"metadata_omit,omitempty"`
+	Data         []byte            `json:"data"`
+	DataOmit     []byte            `json:"data_omit,omitempty"`
 
 	// Fields without JSON tags - should be ignored
 	Internal string

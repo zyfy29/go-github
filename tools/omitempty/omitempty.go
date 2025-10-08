@@ -78,7 +78,7 @@ func checkStructFields(structType *ast.StructType, pass *analysis.Pass) {
 		}
 
 		hasOmitempty := strings.Contains(jsonTag, "omitempty")
-		isPointerOrComposite := isPointerOrCompositeType(field.Type)
+		typeCategory := getTypeCategory(field.Type)
 
 		var fieldName string
 		if len(field.Names) > 0 {
@@ -88,31 +88,46 @@ func checkStructFields(structType *ast.StructType, pass *analysis.Pass) {
 			fieldName = getTypeName(field.Type)
 		}
 
-		if !isPointerOrComposite && hasOmitempty {
-			pass.Reportf(field.Pos(), "field %s: value type should not use omitempty", fieldName)
-		} else if isPointerOrComposite && !hasOmitempty {
-			pass.Reportf(field.Pos(), "field %s: pointer/composite type should use omitempty", fieldName)
+		switch typeCategory {
+		case typeValue:
+			if hasOmitempty {
+				pass.Reportf(field.Pos(), "field %s: value type should not use omitempty", fieldName)
+			}
+		case typePointer:
+			if !hasOmitempty {
+				pass.Reportf(field.Pos(), "field %s: pointer type should use omitempty", fieldName)
+			}
+		case typeComposite:
+			// No restrictions on composite types (slice, map, etc.)
 		}
 	}
 }
 
-func isPointerOrCompositeType(expr ast.Expr) bool {
+type typeCategory int
+
+const (
+	typeValue     typeCategory = iota // Value types (int, string, bool, time.Time, etc.)
+	typePointer                       // Pointer types (*string, *int, etc.)
+	typeComposite                     // Composite types ([]string, map[string]string, etc.)
+)
+
+func getTypeCategory(expr ast.Expr) typeCategory {
 	switch t := expr.(type) {
 	case *ast.StarExpr:
 		// Pointer type
-		return true
+		return typePointer
 	case *ast.ArrayType:
 		// Slice or array
-		return true
+		return typeComposite
 	case *ast.MapType:
 		// Map
-		return true
+		return typeComposite
 	case *ast.InterfaceType:
 		// Interface
-		return true
+		return typeComposite
 	case *ast.ChanType:
 		// Channel
-		return true
+		return typeComposite
 	case *ast.Ident:
 		// Check for basic types
 		basicTypes := map[string]bool{
@@ -123,16 +138,20 @@ func isPointerOrCompositeType(expr ast.Expr) bool {
 			"byte": true, "rune": true,
 			"complex64": true, "complex128": true,
 		}
-		return !basicTypes[t.Name]
+		if basicTypes[t.Name] {
+			return typeValue
+		}
+		// Named types (structs, etc.) - treat as value type
+		return typeValue
 	case *ast.SelectorExpr:
 		// Qualified identifier (e.g., time.Time) - treat as value type
-		return false
+		return typeValue
 	case *ast.StructType:
 		// Inline struct - treat as value type
-		return false
+		return typeValue
 	default:
 		// Unknown type, assume value type
-		return false
+		return typeValue
 	}
 }
 
