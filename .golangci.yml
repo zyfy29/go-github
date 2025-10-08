@@ -19,6 +19,7 @@ linters:
     - misspell
     - musttag
     - nakedret
+    - omitempty
     - paralleltest
     - perfsprint
     - revive
@@ -143,6 +144,10 @@ linters:
         type: module
         description: Reports usage of %d or %s in format strings.
         original-url: github.com/google/go-github/v75/tools/fmtpercentv
+      omitempty:
+        type: module
+        description: Reports incorrect usage of omitempty in JSON tags.
+        original-url: github.com/google/go-github/v75/tools/omitempty
       sliceofpointers:
         type: module
         description: Reports usage of []*string and slices of structs without pointers.

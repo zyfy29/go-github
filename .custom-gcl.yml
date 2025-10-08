@@ -4,3 +4,5 @@ plugins:
     path: ./tools/sliceofpointers
   - module: "github.com/google/go-github/v75/tools/fmtpercentv"
     path: ./tools/fmtpercentv
+  - module: "github.com/google/go-github/v75/tools/omitempty"
+    path: ./tools/omitempty
