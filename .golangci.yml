@@ -148,6 +148,9 @@ linters:
         type: module
         description: Reports incorrect usage of omitempty in JSON tags.
         original-url: github.com/google/go-github/v75/tools/omitempty
+        settings:
+          unnecessary: true # Check that value types should not use omitempty
+          missing: false # Check that pointer types should use omitempty
       sliceofpointers:
         type: module
         description: Reports usage of []*string and slices of structs without pointers.

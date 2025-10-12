@@ -9,6 +9,7 @@
 package omitempty
 
 import (
+	"encoding/json"
 	"go/ast"
 	"reflect"
 	"strings"
@@ -21,12 +22,43 @@ func init() {
 	register.Plugin("omitempty", New)
 }
 
+// Config holds the configuration for the omitempty linter.
+type Config struct {
+	// Unnecessary enables checking that value types should not use omitempty.
+	// Reports "omitempty is unnecessary" for value types with omitempty.
+	// Default: true
+	Unnecessary bool `json:"unnecessary"`
+	// Missing enables checking that pointer types should use omitempty.
+	// Reports "omitempty is missing" for pointer types without omitempty.
+	// Default: true
+	Missing bool `json:"missing"`
+}
+
 // OmitemptyPlugin is a custom linter plugin for golangci-lint.
-type OmitemptyPlugin struct{}
+type OmitemptyPlugin struct {
+	config Config
+}
 
 // New returns an analysis.Analyzer to use with golangci-lint.
-func New(_ any) (register.LinterPlugin, error) {
-	return &OmitemptyPlugin{}, nil
+func New(conf any) (register.LinterPlugin, error) {
+	// Default configuration: both checks enabled
+	config := Config{
+		Unnecessary: true,
+		Missing:     true,
+	}
+
+	// Parse configuration if provided
+	if conf != nil {
+		// The configuration comes as a map[string]any from golangci-lint
+		if confMap, ok := conf.(map[string]any); ok {
+			// Convert to JSON and back to properly parse into our Config struct
+			if jsonBytes, err := json.Marshal(confMap); err == nil {
+				_ = json.Unmarshal(jsonBytes, &config)
+			}
+		}
+	}
+
+	return &OmitemptyPlugin{config: config}, nil
 }
 
 // BuildAnalyzers builds the analyzers for the OmitemptyPlugin.
@@ -35,7 +67,9 @@ func (o *OmitemptyPlugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
 		{
 			Name: "omitempty",
 			Doc:  "Reports incorrect usage of omitempty in JSON tags.",
-			Run:  run,
+			Run: func(pass *analysis.Pass) (any, error) {
+				return run(pass, o.config)
+			},
 		},
 	}, nil
 }
@@ -45,7 +79,7 @@ func (o *OmitemptyPlugin) GetLoadMode() string {
 	return register.LoadModeSyntax
 }
 
-func run(pass *analysis.Pass) (any, error) {
+func run(pass *analysis.Pass, config Config) (any, error) {
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			if n == nil {
@@ -55,7 +89,7 @@ func run(pass *analysis.Pass) (any, error) {
 			switch t := n.(type) {
 			case *ast.TypeSpec:
 				if structType, ok := t.Type.(*ast.StructType); ok {
-					checkStructFields(structType, pass)
+					checkStructFields(structType, pass, config)
 				}
 			}
 
@@ -65,7 +99,7 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func checkStructFields(structType *ast.StructType, pass *analysis.Pass) {
+func checkStructFields(structType *ast.StructType, pass *analysis.Pass, config Config) {
 	for _, field := range structType.Fields.List {
 		if field.Tag == nil {
 			continue
@@ -80,90 +114,46 @@ func checkStructFields(structType *ast.StructType, pass *analysis.Pass) {
 		hasOmitempty := strings.Contains(jsonTag, "omitempty")
 		typeCategory := getTypeCategory(field.Type)
 
-		var fieldName string
-		if len(field.Names) > 0 {
-			fieldName = field.Names[0].Name
-		} else {
-			// Embedded field
-			fieldName = getTypeName(field.Type)
-		}
-
 		switch typeCategory {
 		case typeValue:
-			if hasOmitempty {
-				pass.Reportf(field.Pos(), "field %s: value type should not use omitempty", fieldName)
+			if config.Unnecessary && hasOmitempty {
+				pass.Reportf(field.Pos(), "omitempty is unnecessary for value types")
 			}
 		case typePointer:
-			if !hasOmitempty {
-				pass.Reportf(field.Pos(), "field %s: pointer type should use omitempty", fieldName)
+			if config.Missing && !hasOmitempty {
+				pass.Reportf(field.Pos(), "omitempty is missing for pointer types")
 			}
-		case typeComposite:
-			// No restrictions on composite types (slice, map, etc.)
+		case typeOther:
+			// No restrictions on other types (slice, map, interface, chan, etc.)
 		}
 	}
 }
-
-type typeCategory int
 
 const (
-	typeValue     typeCategory = iota // Value types (int, string, bool, time.Time, etc.)
-	typePointer                       // Pointer types (*string, *int, etc.)
-	typeComposite                     // Composite types ([]string, map[string]string, etc.)
+	typeValue   = iota // Value types that we care about checking (basic types and named structs)
+	typePointer        // Pointer types (*string, *int, etc.)
+	typeOther          // Other types we don't check (slice, map, interface, chan, any, etc.)
 )
 
-func getTypeCategory(expr ast.Expr) typeCategory {
+func getTypeCategory(expr ast.Expr) int {
 	switch t := expr.(type) {
 	case *ast.StarExpr:
-		// Pointer type
+		// Pointer type: *T
 		return typePointer
-	case *ast.ArrayType:
-		// Slice or array
-		return typeComposite
-	case *ast.MapType:
-		// Map
-		return typeComposite
-	case *ast.InterfaceType:
-		// Interface
-		return typeComposite
-	case *ast.ChanType:
-		// Channel
-		return typeComposite
 	case *ast.Ident:
-		// Check for basic types
-		basicTypes := map[string]bool{
-			"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
-			"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
-			"float32": true, "float64": true,
-			"string": true, "bool": true,
-			"byte": true, "rune": true,
-			"complex64": true, "complex128": true,
-		}
-		if basicTypes[t.Name] {
-			return typeValue
-		}
-		// Named types (structs, etc.) - treat as value type
+		// All identifier types (int, string, bool, CustomType, any, error, etc.)
 		return typeValue
 	case *ast.SelectorExpr:
-		// Qualified identifier (e.g., time.Time) - treat as value type
+		// Qualified types like time.Time, pkg.Type
+		// Only exclude json.RawMessage
+		if x, ok := t.X.(*ast.Ident); ok && x.Name == "json" && t.Sel.Name == "RawMessage" {
+			return typeOther
+		}
 		return typeValue
 	case *ast.StructType:
-		// Inline struct - treat as value type
+		// Inline struct
 		return typeValue
 	default:
-		// Unknown type, assume value type
-		return typeValue
-	}
-}
-
-func getTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.StarExpr:
-		return getTypeName(t.X)
-	case *ast.Ident:
-		return t.Name
-	case *ast.SelectorExpr:
-		return getTypeName(t.X) + "." + t.Sel.Name
-	default:
-		return "unknown"
+		return typeOther
 	}
 }
